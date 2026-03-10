@@ -137,7 +137,8 @@ with tab_stats:
             st.write("**Répartition par Intervenante**")
             fig_pie_inter = px.pie(df_f, names='intervenante', values='quantite', 
                                    color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig_pie_inter, use_container_width=True)
+            # Ajout d'une clé unique 'chart_stats_inter'
+            st.plotly_chart(fig_pie_inter, use_container_width=True, key="chart_stats_inter")
         with s2:
             st.write("**Volume total par Tâche**")
             st.bar_chart(df_f.groupby('tache')['quantite'].sum())
@@ -151,18 +152,24 @@ with tab_print:
         p1, p2 = st.columns(2)
         with p1:
             st.write("**Répartition des actions (Tâches)**")
-            fig_taches = px.pie(df_f, names='tache', values='quantite')
-            st.plotly_chart(fig_taches, use_container_width=True)
+            fig_taches_print = px.pie(df_f, names='tache', values='quantite')
+            # Ajout d'une clé unique 'chart_print_taches'
+            st.plotly_chart(fig_taches_print, use_container_width=True, key="chart_print_taches")
         with p2:
             st.write("**Répartition des intervenantes**")
             fig_pie_print = px.pie(df_f, names='intervenante', values='quantite', 
                                    color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig_pie_print, use_container_width=True)
+            # Ajout d'une clé unique 'chart_print_inter'
+            st.plotly_chart(fig_pie_print, use_container_width=True, key="chart_print_inter")
         
         st.write("**Tableau détaillé des activités :**")
         df_p = df_f.sort_values('date', ascending=False)
         df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.table(df_p)
+        
+        st.info("💡 Conseil : Pour imprimer proprement, utilisez 'Imprimer' de votre navigateur (Ctrl+P).")
+    else:
+        st.info("Rien à afficher pour l'impression.")
         
         st.info("💡 Conseil : Pour imprimer proprement, utilisez 'Imprimer' de votre navigateur (Ctrl+P).")
     else:
