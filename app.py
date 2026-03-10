@@ -128,15 +128,17 @@ with cf2:
 with cf3:
     f_tache = st.multiselect("Filtrer par tâches", LISTE_TACHES)
 
-df_f = st.session_state.df_act.copy()
-if len(per) == 2:
-    df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
-if f_inter:
-    df_f = df_f[df_f['intervenante'].isin(f_inter)]
-if f_tache:
-    df_f = df_f[df_f['tache'].isin(f_tache)]
+# --- REMPLACER TOUTE LA ZONE DES ONGLETS (LIGNE 130 ENVIRON) PAR CECI ---
 
 tab_stats, tab_print = st.tabs(["📊 Statistiques", "🖨️ Mode Impression"])
+
+# Sécurité : Si df_f est vide, on vérifie si c'est un problème de filtre
+if df_f.empty:
+    st.warning("⚠️ Aucune donnée trouvée pour cette période ou ces filtres. Essayez d'élargir la période de dates ci-dessus.")
+    
+    # Bouton de secours si vraiment rien ne s'affiche
+    if st.checkbox("🔍 Debug : Afficher TOUTES les données sans filtre"):
+        st.table(st.session_state.df_act)
 
 with tab_stats:
     if not df_f.empty:
@@ -144,38 +146,40 @@ with tab_stats:
         with s1:
             st.write("**Répartition par Intervenante**")
             fig_p1 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig_p1, use_container_width=True, key="p1")
+            st.plotly_chart(fig_p1, use_container_width=True, key="p1_final")
         with s2:
             st.write("**Volume total par Tâche**")
             df_g = df_f.groupby('tache')['quantite'].sum().reset_index()
             fig_b = px.bar(df_g, x='tache', y='quantite', color='tache', color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig_b, use_container_width=True, key="pb")
-    else:
-        st.warning("Aucune donnée.")
+            st.plotly_chart(fig_b, use_container_width=True, key="pb_final")
 
 with tab_print:
     if not df_f.empty:
-        st.markdown(f"### Rapport d'activité du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
+        # Conteneur principal pour l'impression
+        st.markdown(f"## RAPPORT D'ACTIVITÉ N&M")
+        st.markdown(f"**Période :** du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
         
+        # Graphiques côte à côte
         p1, p2 = st.columns(2)
         with p1:
-            st.write("**Actions (Tâches)**")
+            st.write("**Répartition des actions (Tâches)**")
             fig_t = px.pie(df_f, names='tache', values='quantite', color_discrete_sequence=px.colors.qualitative.Safe)
-            st.plotly_chart(fig_t, use_container_width=True, key="p2")
+            st.plotly_chart(fig_t, use_container_width=True, key="p2_final")
         with p2:
-            st.write("**Intervenantes**")
+            st.write("**Répartition des intervenantes**")
             fig_i = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig_i, use_container_width=True, key="p3")
+            st.plotly_chart(fig_i, use_container_width=True, key="p3_final")
         
-        st.write("**Détails des activités :**")
-        df_p = df_f.sort_values('date', ascending=False)
+        # Tableau des détails
+        st.write("### Détails des activités")
+        df_p = df_f.sort_values('date', ascending=False).copy()
         df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_p)
+        st.table(df_p[["date", "intervenante", "tache", "quantite", "nb_ecoles"]])
         
-        # --- LE BOUTON IMPRIMANTE ---
+        # --- BOUTON IMPRIMANTE ---
         st.divider()
-        st.write("### 🖨️ Prêt pour l'impression ?")
-        if st.button("Lancer l'impression du rapport"):
+        st.write("### 🖨️ Action")
+        if st.button("🖨️ CLIQUER ICI POUR IMPRIMER LE RAPPORT"):
             components.html("<script>window.print();</script>", height=0)
     else:
-        st.info("Rien à imprimer.")
+        st.error("Le rapport est vide car aucune donnée ne correspond aux filtres sélectionnés.")
