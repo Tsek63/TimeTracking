@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import date, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
+import plotly.express as px  # Pour le camembert
 
-# --- 1. CONFIGURATION GOOGLE SHEETS ---
-# ID nettoyé de tout espace invisible
+# --- 1. CONFIGURATION ---
 SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU"
 SHEET_NAME = "Data"
 
@@ -16,7 +16,7 @@ def get_gsheet_client():
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
     except Exception as e:
-        st.error(f"Erreur de connexion Google : {e}")
+        st.error(f"Erreur de connexion : {e}")
         return None
 
 def load_data():
@@ -26,22 +26,18 @@ def load_data():
         if client:
             data = client.get_all_records()
             df = pd.DataFrame(data)
-            
-            if df.empty or 'date' not in df.columns:
-                return pd.DataFrame(columns=columns)
-            
-            # Conversion ultra-robuste des dates
+            if df.empty: return pd.DataFrame(columns=columns)
             df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
-            # On supprime les lignes où la date serait devenue invalide (vide)
-            df = df.dropna(subset=['date'])
-            return df
-    except Exception as e:
-        st.error(f"Erreur technique : {e}")
+            return df.dropna(subset=['date'])
+    except:
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
-# --- 2. PARAMÈTRES ET LISTES ---
+# --- 2. PARAMÈTRES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
+# Couleurs strictes
+COULEURS_MAP = {"Véronique Maigrié": "#E67E22", "Sylvie Nyssen": "#3498DB"}
+
 LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
@@ -52,108 +48,101 @@ LISTE_TACHES = [
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
-# --- 3. MISE EN PAGE ---
 st.set_page_config(layout="wide", page_title="Suivi Activité N&M", page_icon="📊")
 
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
-# --- 4. SIDEBAR ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
-    st.title("📅 Calendrier")
-    date_sel = st.date_input("Date de l'intervention", date.today())
-    st.info(f"Format choisi : **{date_sel.strftime('%d/%m/%Y')}**")
-    
-    st.divider()
+    st.title("📅 Menu")
+    date_sel = st.date_input("Date", date.today())
     choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS)
-    
-    st.divider()
-    if st.button("🔄 Actualiser les données Cloud"):
+    if st.button("🔄 Synchroniser"):
         st.session_state.df_act = load_data()
         st.rerun()
 
-# --- 5. ZONE DE SAISIE ET RÉCAPITULATIF ---
-col_saisie, col_recap = st.columns([1, 1.2])
+# --- 4. ENCODAGE & RÉCAPITULATIF ---
+col_saisie, col_recap = st.columns([1, 1.3])
 
 with col_saisie:
-    st.subheader("📝 Enregistrement")
+    st.subheader("📝 Nouvel encodage")
     with st.form("form_activite", clear_on_submit=True):
-        tache_sel = st.selectbox("Action effectuée", LISTE_TACHES)
-        qte = st.number_input("Valeur (Nombre entier)", min_value=0, step=1, value=1)
+        tache_sel = st.selectbox("Tâche", LISTE_TACHES)
+        qte = st.number_input("Quantité", min_value=1, step=1)
         
+        # Condition spécifique pour le nettoyage
         ecoles = 0
         if tache_sel == "NETTOYAGES DES DONNEES CREOS":
-            ecoles = st.number_input("Nombre d'écoles", min_value=0, step=1, value=0)
+            ecoles = st.number_input("Nombre d'écoles concernées", min_value=1, step=1)
 
-        if st.form_submit_button("💾 Enregistrer l'activité"):
+        if st.form_submit_button("💾 Enregistrer"):
             client = get_gsheet_client()
             if client:
                 new_row = [str(date_sel), choix_inter, tache_sel, int(qte), int(ecoles)]
                 client.append_row(new_row)
                 st.session_state.df_act = load_data()
-                st.success("✅ Enregistré avec succès !")
+                st.success("Enregistré !")
                 st.rerun()
 
 with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
+    df_j = st.session_state.df_act[st.session_state.df_act['date'] == date_sel].copy()
     
-    df_local = st.session_state.df_act.copy()
-    
-    if not df_local.empty:
-        # Filtrage
-        view_df = df_local[df_local['date'] == date_sel].copy()
-        
-        if not view_df.empty:
-            view_df['date'] = view_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-            st.dataframe(view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
-        else:
-            st.info(f"Pas d'activité enregistrée pour le {date_sel.strftime('%d/%m/%Y')}.")
-            # La case à cocher de secours apparaît maintenant TOUJOURS si la date est vide
-            if st.checkbox("🔍 Voir les 10 dernières entrées (toutes dates)"):
-                st.table(df_local.tail(10))
+    if not df_j.empty:
+        # Affichage avec bouton de suppression (Poubelle)
+        for i, row in df_j.iterrows():
+            c_info, c_del = st.columns([5, 1])
+            with c_info:
+                st.write(f"**{row['intervenante']}** : {row['tache']} ({row['quantite']})")
+            with c_del:
+                if st.button("🗑️", key=f"del_{i}"):
+                    client = get_gsheet_client()
+                    # On supprime dans Google Sheet (index + 2 car index 0 = ligne 2)
+                    client.delete_rows(i + 2)
+                    st.session_state.df_act = load_data()
+                    st.rerun()
+        st.divider()
+        st.dataframe(df_j[["intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
     else:
-        st.warning("⚠️ La base de données est vide ou inaccessible.")
+        st.info("Aucune donnée pour ce jour.")
 
-# --- 6. STATISTIQUES ---
+# --- 5. ANALYSE & IMPRESSION ---
 st.divider()
-st.header("📊 Analyse & Statistiques")
-tab1, tab2 = st.tabs(["🔍 Filtres & Graphiques", "🖨️ Mode Impression"])
+tab_stats, tab_print = st.tabs(["📊 Statistiques", "🖨️ Rapport d'impression"])
 
-with tab1:
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        try:
-            per = st.date_input("Période", [date.today() - timedelta(days=7), date.today()])
-        except:
-            per = [date.today(), date.today()]
-    with c2:
-        f_inter = st.multiselect("Intervenante(s)", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
-    with c3:
-        f_tache = st.multiselect("Tâche(s)", LISTE_TACHES)
+# Filtres partagés
+df_f = st.session_state.df_act.copy()
+per = st.sidebar.date_input("Période stats", [date.today() - timedelta(days=30), date.today()])
+if len(per) == 2:
+    df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
 
-    # Filtrage global
-    df_f = st.session_state.df_act.copy()
-    if len(per) == 2:
-        df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
-    if f_inter:
-        df_f = df_f[df_f['intervenante'].isin(f_inter)]
-    if f_tache:
-        df_f = df_f[df_f['tache'].isin(f_tache)]
-
+with tab_stats:
     if not df_f.empty:
-        g1, g2 = st.columns(2)
-        with g1:
+        s1, s2 = st.columns(2)
+        with s1:
+            st.write("**Répartition par Intervenante**")
+            fig_pie = px.pie(df_f, names='intervenante', values='quantite', 
+                             color='intervenante', color_discrete_map=COULEURS_MAP)
+            st.plotly_chart(fig_pie, use_container_width=True)
+        with s2:
             st.write("**Volume par Tâche**")
             st.bar_chart(df_f.groupby('tache')['quantite'].sum())
-        with g2:
-            st.write("**Répartition par Intervenante**")
-            stats_int = df_f.groupby('intervenante')['quantite'].sum().reset_index()
-            st.bar_chart(data=stats_int, x='intervenante', y='quantite', color='intervenante')
     else:
-        st.write("Aucune donnée sur cette période.")
+        st.write("Pas de données sur la période.")
 
-with tab2:
+with tab_print:
     if not df_f.empty:
-        df_print = df_f.sort_values('date', ascending=False).copy()
-        df_print['date'] = df_print['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_print)
+        st.markdown(f"### Rapport d'activité du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
+        
+        # Bouton d'impression JavaScript
+        st.button("🖨️ Lancer l'impression", on_click=lambda: st.write('<script>window.print();</script>', unsafe_allow_html=True))
+        st.write("*(Ou utilisez Ctrl+P sur votre clavier)*")
+        
+        # Affichage Camembert pour le rapport
+        fig_print = px.pie(df_f, names='tache', values='quantite', title="Répartition des tâches")
+        st.plotly_chart(fig_print)
+        
+        df_p = df_f.sort_values('date', ascending=False)
+        df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+        st.table(df_p)
