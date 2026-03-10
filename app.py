@@ -75,6 +75,7 @@ col_saisie, col_recap = st.columns([1, 1.2])
 
 with col_saisie:
     st.subheader("📝 Encodage")
+    # On utilise un formulaire pour regrouper les champs
     with st.form("form_activite", clear_on_submit=True):
         tache_sel = st.selectbox("Type de tâche", LISTE_TACHES)
         qte = st.number_input("Valeur (Nombre entier)", min_value=0, step=1, value=1)
@@ -83,24 +84,56 @@ with col_saisie:
         if tache_sel == "NETTOYAGES DES DONNEES CREOS":
             ecoles = st.number_input("Nombre d'écoles concernées", min_value=0, step=1, value=0)
 
-        if st.form_submit_button("💾 Enregistrer sur Google Sheets"):
-            client = get_gsheet_client()
-            if client:
-                new_row = [str(date_sel), choix_inter, tache_sel, qte, ecoles if tache_sel == "NETTOYAGES DES DONNEES CREOS" else 0]
-                client.append_row(new_row)
-                st.success("✅ Données synchronisées !")
-                st.session_state.df_act = load_data()
-                st.rerun()
+        submit = st.form_submit_button("💾 Enregistrer dans le Cloud")
+
+        if submit:
+            with st.spinner("Envoi vers Google Sheets..."):
+                client = get_gsheet_client()
+                if client:
+                    try:
+                        # 1. Préparation de la ligne (la date est convertie en texte pour Excel)
+                        new_row = [
+                            str(date_sel), 
+                            choix_inter, 
+                            tache_sel, 
+                            int(qte), 
+                            int(ecoles) if tache_sel == "NETTOYAGES DES DONNEES CREOS" else 0
+                        ]
+                        
+                        # 2. Envoi réel vers la Google Sheet
+                        client.append_row(new_row)
+                        
+                        # 3. MISE À JOUR CRUCIALE : On recharge les données dans la session
+                        # Cela permet au tableau de droite de "voir" la nouvelle ligne
+                        st.session_state.df_act = load_data()
+                        
+                        st.success(f"✅ Activité enregistrée pour {choix_inter} !")
+                        
+                        # 4. On relance l'application pour rafraîchir tous les tableaux
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Erreur lors de l'enregistrement : {e}")
 
 with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
-    mask = (st.session_state.df_act['date'] == date_sel)
-    view_df = st.session_state.df_act[mask]
     
-    if not view_df.empty:
-        st.dataframe(view_df[["intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
+    # On vérifie si on a des données avant d'essayer de filtrer
+    if not st.session_state.df_act.empty:
+        # Filtrage sur la date sélectionnée dans le calendrier à gauche
+        mask = (st.session_state.df_act['date'] == date_sel)
+        view_df = st.session_state.df_act[mask]
+        
+        if not view_df.empty:
+            # On affiche le tableau trié par la saisie la plus récente en haut
+            st.dataframe(
+                view_df[["intervenante", "tache", "quantite", "nb_ecoles"]].sort_index(ascending=False), 
+                use_container_width=True
+            )
+        else:
+            st.info("Aucun encodage trouvé pour ce jour précis.")
     else:
-        st.info("Aucun encodage pour cette date.")
+        st.warning("La base de données semble vide ou n'a pas pu être chargée.")
 
 # --- SECTION STATISTIQUES ---
 st.divider()
