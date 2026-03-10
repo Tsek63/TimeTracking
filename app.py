@@ -113,19 +113,60 @@ with col2:
     else:
         st.info("Rien à signaler pour cette date.")
 
-# --- 5. REPORTING ---
+# --- 5. REPORTING & IMPRESSION ---
 st.divider()
-st.header("📊 Reporting & Impression")
+st.header("📊 Reporting & Historique")
 
 if not st.session_state.df_act.empty:
-    # FILTRES
+    # FILTRES TOUJOURS VISIBLES
     f1, f2, f3 = st.columns([1, 1, 1.5])
     with f1:
-        d_range = st.date_input("Période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
+        d_range = st.date_input("Période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])], key="filter_date")
     with f2:
-        f_int = st.multiselect("Personnes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
+        f_int = st.multiselect("Personnes", LISTE_REDACTEURS, default=LISTE_REDACTEURS, key="filter_int")
     with f3:
-        f_tac = st.multiselect("Tâches", LISTE_TACHES)
+        f_tac = st.multiselect("Tâches", LISTE_TACHES, key="filter_tac")
+
+    # FILTRAGE
+    df_f = st.session_state.df_act.copy()
+    if len(d_range) == 2:
+        df_f = df_f[(df_f['date'] >= d_range[0]) & (df_f['date'] <= d_range[1])]
+    if f_int:
+        df_f = df_f[df_f['intervenante'].isin(f_int)]
+    if f_tac:
+        df_f = df_f[df_f['tache'].isin(f_tac)]
+
+    # AFFICHAGE DIRECT (SANS ONGLETS POUR ÉVITER LE BLANC)
+    if not df_f.empty:
+        st.markdown("---")
+        # CETTE SECTION EST CELLE QUI SERA IMPRIMÉE
+        container_print = st.container()
+        with container_print:
+            st.markdown(f"## 📋 RAPPORT D'ACTIVITÉ N&M")
+            st.write(f"Extraction du **{d_range[0]}** au **{d_range[1]}**")
+            
+            p1, p2 = st.columns(2)
+            with p1:
+                fig_actions = px.pie(df_f, names='tache', values='quantite', title="Répartition des Actions")
+                st.plotly_chart(fig_actions, use_container_width=True, key="print_pie_1")
+            with p2:
+                fig_pers = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Répartition par Personne")
+                st.plotly_chart(fig_pers, use_container_width=True, key="print_pie_2")
+            
+            st.write("### Tableau récapitulatif")
+            # On affiche un tableau statique (st.table) qui s'imprime mieux qu'un dataframe interactif
+            df_print = df_f.sort_values('date', ascending=False).copy()
+            df_print['date'] = df_print['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            st.table(df_print[["date", "intervenante", "tache", "quantite", "nb_ecoles"]])
+
+        # BOUTON D'IMPRESSION
+        st.write("---")
+        if st.button("🖨️ LANCER L'IMPRESSION DU RAPPORT CI-DESSUS"):
+            components.html("<script>window.print();</script>", height=0)
+    else:
+        st.warning("Aucune donnée pour ces filtres.")
+else:
+    st.info("La base de données est vide.")
 
     # FILTRAGE DU DF
     df_f = st.session_state.df_act.copy()
