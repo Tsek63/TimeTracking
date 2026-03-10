@@ -93,16 +93,37 @@ with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
     
     if not st.session_state.df_act.empty:
-        # Filtrage
-        mask = (st.session_state.df_act['date'] == date_sel)
-        view_df = st.session_state.df_act[mask].copy()
+        # 1. On crée une copie de travail
+        df_local = st.session_state.df_act.copy()
+        
+        # 2. On transforme TOUT en texte format ISO pour être sûr de comparer la même chose
+        # Cela évite les conflits entre objets 'date' et 'strings'
+        date_cherche_str = date_sel.strftime('%Y-%m-%d')
+        df_local['date_str'] = pd.to_datetime(df_local['date']).dt.strftime('%Y-%m-%d')
+        
+        # 3. Filtrage sur le texte
+        mask = (df_local['date_str'] == date_cherche_str)
+        view_df = df_local[mask].copy()
         
         if not view_df.empty:
-            # FORMATTAGE VISUEL pour le tableau de droite
-            view_df['date'] = view_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-            st.dataframe(view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
+            # On remet la date en format FR pour l'affichage final
+            view_df['date'] = pd.to_datetime(view_df['date']).dt.strftime('%d/%m/%Y')
+            
+            # Affichage du tableau
+            st.dataframe(
+                view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]].sort_index(ascending=False), 
+                use_container_width=True
+            )
         else:
-            st.info("Aucune activité pour ce jour.")
+            # --- ZONE DE DIAGNOSTIC (Si toujours rien) ---
+            st.info(f"🔍 Aucune ligne trouvée pour le {date_sel.strftime('%d/%m/%Y')}")
+            with st.expander("Pourquoi je ne vois rien ?"):
+                st.write(f"Date sélectionnée (système) : `{date_cherche_str}`")
+                st.write("Dates présentes dans votre Google Sheet :")
+                st.write(df_local['date_str'].unique().tolist())
+                st.write("Si votre date n'est pas dans la liste ci-dessus, c'est qu'elle n'est pas lue correctement depuis Google.")
+    else:
+        st.warning("⚠️ La base de données est vide ou n'est pas connectée.")
 
 # --- SECTION STATISTIQUES & IMPRESSION ---
 st.divider()
