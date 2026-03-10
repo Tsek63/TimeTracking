@@ -35,6 +35,7 @@ def load_data():
 
 # --- 2. PARAMÈTRES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
+# COULEURS OFFICIELLES
 COULEURS_MAP = {"Véronique Maigrié": "#E67E22", "Sylvie Nyssen": "#3498DB"}
 
 LISTE_TACHES = [
@@ -99,7 +100,6 @@ with col_recap:
             with c_btn:
                 if st.button("🗑️", key=f"del_{i}"):
                     client = get_gsheet_client()
-                    # i+2 car ligne 1=titres et index commence à 0
                     client.delete_rows(int(i) + 2)
                     st.session_state.df_act = load_data()
                     st.rerun()
@@ -136,12 +136,17 @@ with tab_stats:
         s1, s2 = st.columns(2)
         with s1:
             st.write("**Répartition par Intervenante**")
+            # Utilisation des couleurs fixes Orange/Bleu
             fig_pie_stat = px.pie(df_f, names='intervenante', values='quantite', 
                                    color='intervenante', color_discrete_map=COULEURS_MAP)
             st.plotly_chart(fig_pie_stat, use_container_width=True, key="p1")
         with s2:
             st.write("**Volume total par Tâche**")
-            st.bar_chart(df_f.groupby('tache')['quantite'].sum())
+            # Graphique à barres coloré par tâche
+            df_grouped = df_f.groupby('tache')['quantite'].sum().reset_index()
+            fig_bar = px.bar(df_grouped, x='tache', y='quantite', color='tache', 
+                             color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_bar, use_container_width=True, key="p_bar")
     else:
         st.warning("Aucune donnée pour les filtres sélectionnés.")
 
@@ -152,10 +157,13 @@ with tab_print:
         p1, p2 = st.columns(2)
         with p1:
             st.write("**Répartition des actions (Tâches)**")
-            fig_taches_print = px.pie(df_f, names='tache', values='quantite')
+            # Camembert avec une palette variée pour les tâches
+            fig_taches_print = px.pie(df_f, names='tache', values='quantite', 
+                                      color_discrete_sequence=px.colors.qualitative.Safe)
             st.plotly_chart(fig_taches_print, use_container_width=True, key="p2")
         with p2:
             st.write("**Répartition des intervenantes**")
+            # Camembert avec couleurs fixes Orange/Bleu
             fig_pie_print = px.pie(df_f, names='intervenante', values='quantite', 
                                    color='intervenante', color_discrete_map=COULEURS_MAP)
             st.plotly_chart(fig_pie_print, use_container_width=True, key="p3")
