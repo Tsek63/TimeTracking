@@ -33,6 +33,7 @@ def load_data():
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
+# --- INITIALISATION ---
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
@@ -97,7 +98,7 @@ with c2:
 
 # --- 5. REPORTING ---
 st.divider()
-st.header("📊 Statistiques & Export")
+st.header("📊 Statistiques & Impression")
 
 if not st.session_state.df_act.empty:
     f1, f2, f3 = st.columns([1, 1, 1.5])
@@ -116,7 +117,8 @@ if not st.session_state.df_act.empty:
     if f_tac:
         df_f = df_f[df_f['tache'].isin(f_tac)]
 
-    t1, t2 = st.tabs(["📊 Graphiques", "📥 Export pour Impression"])
+    # ONGLETS
+    t1, t2 = st.tabs(["📊 Graphiques", "🖨️ Mode Impression"])
 
     with t1:
         if not df_f.empty:
@@ -133,24 +135,22 @@ if not st.session_state.df_act.empty:
 
     with t2:
         if not df_f.empty:
-            st.subheader("📥 Préparer l'impression")
-            st.write("Le format web est capricieux à l'impression. Téléchargez le tableau ci-dessous pour l'imprimer proprement via Excel ou Numbers.")
+            st.markdown(f"## RAPPORT D'ACTIVITÉ")
+            st.write(f"Période : {per[0]} au {per[1]}")
             
-            df_export = df_f.sort_values('date', ascending=False).copy()
-            df_export['date'] = df_export['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            p1, p2 = st.columns(2)
+            with p1:
+                fig3 = px.pie(df_f, names='tache', values='quantite', title="Actions")
+                st.plotly_chart(fig3, use_container_width=True, key="g3")
+            with p2:
+                fig4 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Personnes")
+                st.plotly_chart(fig4, use_container_width=True, key="g4")
             
-            # Bouton de téléchargement CSV
-            csv = df_export.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                label="📥 Télécharger le tableau (CSV pour Excel)",
-                data=csv,
-                file_name=f"rapport_activite_{per[0]}_{per[1]}.csv",
-                mime='text/csv',
-            )
-            
-            st.write("### Aperçu des données à exporter :")
-            st.table(df_export)
+            st.write("### Détails des lignes")
+            df_p = df_f.sort_values('date', ascending=False).copy()
+            df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            st.table(df_p)
         else:
-            st.info("Rien à exporter.")
+            st.info("Rien à afficher.")
 else:
     st.info("La base est vide.")
