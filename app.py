@@ -104,24 +104,28 @@ with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
     
     if not st.session_state.df_act.empty:
-        # Filtrage robuste : on compare les dates au format ISO (texte)
-        df_temp = st.session_state.df_act.copy()
-        date_cherche = date_sel.strftime('%Y-%m-%d')
-        df_temp['date_str'] = pd.to_datetime(df_temp['date']).dt.strftime('%Y-%m-%d')
+        df_local = st.session_state.df_act.copy()
         
-        view_df = df_temp[df_temp['date_str'] == date_cherche].copy()
+        # Sécurité : on s'assure que 'date' est bien au format date
+        df_local['date'] = pd.to_datetime(df_local['date']).dt.date
+        
+        # Filtrage
+        view_df = df_local[df_local['date'] == date_sel].copy()
         
         if not view_df.empty:
-            # On change l'affichage pour l'utilisateur en JJ/MM/AAAA
-            view_df['date'] = pd.to_datetime(view_df['date']).dt.strftime('%d/%m/%Y')
-            st.dataframe(
-                view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]].sort_index(ascending=False),
-                use_container_width=True
-            )
+            # Formatage pour l'affichage
+            view_df['date'] = view_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            st.dataframe(view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
         else:
-            st.info("Aucune donnée enregistrée pour cette date.")
+            st.info(f"Pas d'activité enregistrée pour le {date_sel.strftime('%d/%m/%Y')}.")
+            
+            # --- LE BOUTON DE SECOURS ---
+            if st.checkbox("Afficher les 10 dernières activités toutes dates confondues"):
+                recent_df = df_local.tail(10).copy()
+                recent_df['date'] = recent_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+                st.table(recent_df[["date", "intervenante", "tache", "quantite"]])
     else:
-        st.warning("La base de données est vide.")
+        st.warning("La base de données semble vide (ou impossible à lire).")
 
 # --- 6. STATISTIQUES ET IMPRESSION ---
 st.divider()
