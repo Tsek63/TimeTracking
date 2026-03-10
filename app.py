@@ -5,29 +5,38 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATION GOOGLE SHEETS ---
-SHEET_ID = "VOTRE_ID_DE_FEUILLE_ICI" # À copier depuis l'URL de votre Google Sheet
+# REMPLACEZ par l'ID de votre feuille (trouvé dans l'URL de votre Google Sheet)
+SHEET_ID = "VOTRE_ID_DE_FEUILLE_ICI" 
 SHEET_NAME = "Data"
 
 def get_gsheet_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    # Utilise les secrets configurés sur Streamlit Cloud
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+    # Utilise les secrets configurés en TOML sur Streamlit Cloud
+    try:
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        client = gspread.authorize(creds)
+        return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+    except Exception as e:
+        st.error(f"Erreur de configuration Google : {e}")
+        return None
 
 def load_data():
     try:
         client = get_gsheet_client()
-        data = client.get_all_records()
-        df = pd.DataFrame(data)
-        if not df.empty:
-            df['date'] = pd.to_datetime(df['date']).dt.date
-        return df
-    except Exception as e:
-        return pd.DataFrame(columns=["date", "intervenante", "tache", "quantite", "nb_ecoles"])
+        if client:
+            data = client.get_all_records()
+            df = pd.DataFrame(data)
+            if not df.empty:
+                df['date'] = pd.to_datetime(df['date']).dt.date
+            return df
+    except:
+        pass
+    return pd.DataFrame(columns=["date", "intervenante", "tache", "quantite", "nb_ecoles"])
 
 # --- PARAMÈTRES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
+COULEURS_INTER = {"Véronique Maigrié": "#e67e22", "Sylvie Nyssen": "#3498db"} # Orange et Bleu
+
 LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
@@ -38,101 +47,119 @@ LISTE_TACHES = [
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
-st.set_page_config(layout="wide", page_title="Gestion Activité - N&M")
+st.set_page_config(layout="wide", page_title="Gestion Activité N&M", page_icon="📊")
 
+# Initialisation session
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("📅 Calendrier & Filtres")
-    date_sel = st.date_input("Date de l'encodage", date.today())
-    choix_inter = st.selectbox("Intervenante par défaut", LISTE_REDACTEURS)
+    st.title("📅 Paramètres")
+    date_sel = st.date_input("Date de l'activité", date.today())
     
-    st.divider()
-    if st.button("🔄 Synchroniser Google Sheets"):
-        st.session_state.df_act = load_data()
-        st.success("Données à jour !")
+    if 'last_inter' not in st.session_state:
+        st.session_state.last_inter = LISTE_REDACTEURS[0]
+        
+    choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS, 
+                               index=LISTE_REDACTEURS.index(st.session_state.last_inter))
+    st.session_state.last_inter = choix_inter
 
-# --- ZONE D'ENCODAGE ---
-col_saisie, col_info = st.columns([1, 1.2])
+    st.divider()
+    if st.button("🔄 Actualiser les données Cloud"):
+        st.session_state.df_act = load_data()
+        st.rerun()
+
+# --- CORPS DE L'APP : SAISIE ---
+col_saisie, col_recap = st.columns([1, 1.2])
 
 with col_saisie:
-    st.subheader("📝 Nouvel Enregistrement")
-    with st.form("form_act", clear_on_submit=True):
-        tache_sel = st.selectbox("Tâche effectuée", LISTE_TACHES)
+    st.subheader("📝 Encodage")
+    with st.form("form_activite", clear_on_submit=True):
+        tache_sel = st.selectbox("Type de tâche", LISTE_TACHES)
         qte = st.number_input("Valeur (Nombre entier)", min_value=0, step=1, value=1)
+        
         ecoles = 0
         if tache_sel == "NETTOYAGES DES DONNEES CREOS":
-            ecoles = st.number_input("Nombre d'écoles", min_value=0, step=1)
-        
-        if st.form_submit_button("💾 Enregistrer dans le Cloud"):
-            try:
-                sheet = get_gsheet_client()
-                sheet.append_row([str(date_sel), choix_inter, tache_sel, qte, ecoles])
+            ecoles = st.number_input("Nombre d'écoles concernées", min_value=0, step=1, value=0)
+
+        if st.form_submit_button("💾 Enregistrer sur Google Sheets"):
+            client = get_gsheet_client()
+            if client:
+                new_row = [str(date_sel), choix_inter, tache_sel, qte, ecoles if tache_sel == "NETTOYAGES DES DONNEES CREOS" else 0]
+                client.append_row(new_row)
+                st.success("✅ Données synchronisées !")
                 st.session_state.df_act = load_data()
-                st.success("Données envoyées avec succès !")
                 st.rerun()
-            except Exception as e:
-                st.error(f"Erreur : {e}")
 
-with col_info:
-    st.subheader(f"📋 Activité du {date_sel.strftime('%d/%m/%Y')}")
-    df_jour = st.session_state.df_act[st.session_state.df_act['date'] == date_sel]
-    if not df_jour.empty:
-        st.dataframe(df_jour[["intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
+with col_recap:
+    st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
+    mask = (st.session_state.df_act['date'] == date_sel)
+    view_df = st.session_state.df_act[mask]
+    
+    if not view_df.empty:
+        st.dataframe(view_df[["intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
     else:
-        st.info("Aucune saisie pour ce jour.")
+        st.info("Aucun encodage pour cette date.")
 
-# --- MODULE DE STATISTIQUES AVANCÉES ---
+# --- SECTION STATISTIQUES ---
 st.divider()
-st.header("📊 Reporting & Analyse")
+st.header("📊 Analyse & Reporting")
 
-tab_stats, tab_print = st.tabs(["🔍 Analyse Dynamique", "🖨️ Mode Impression"])
+tab_analyse, tab_print = st.tabs(["🔍 Filtres & Graphiques", "🖨️ Format Impression"])
 
-with tab_stats:
+# Logique de filtrage commune
+with tab_analyse:
     c1, c2, c3 = st.columns(3)
     with c1:
-        # Sélection de période
-        today = date.today()
-        start_date = today - timedelta(days=30)
-        per = st.date_input("Période d'analyse", [start_date, today])
+        periode = st.date_input("Période", [date.today() - timedelta(days=30), date.today()])
     with c2:
-        inter_filt = st.multiselect("Intervenante(s)", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
+        f_inter = st.multiselect("Intervenante(s)", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
     with c3:
-        tache_filt = st.multiselect("Tâche(s)", LISTE_TACHES, default=[])
+        f_tache = st.multiselect("Tâche(s)", LISTE_TACHES)
 
-    # Filtrage du DataFrame
-    df_res = st.session_state.df_act.copy()
-    if len(per) == 2:
-        df_res = df_res[(df_res['date'] >= per[0]) & (df_res['date'] <= per[1])]
-    if inter_filt:
-        df_res = df_res[df_res['intervenante'].isin(inter_filt)]
-    if tache_filt:
-        df_res = df_res[df_res['tache'].isin(tache_filt)]
+# Application des filtres
+df_filt = st.session_state.df_act.copy()
+if len(periode) == 2:
+    df_filt = df_filt[(df_filt['date'] >= periode[0]) & (df_filt['date'] <= periode[1])]
+if f_inter:
+    df_filt = df_filt[df_filt['intervenante'].isin(f_inter)]
+if f_tache:
+    df_filt = df_filt[df_filt['tache'].isin(f_tache)]
 
-    if not df_res.empty:
-        # Graphiques
-        st.write(f"**Total cumulé sur la période : {df_res['quantite'].sum()} unités**")
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.bar_chart(df_res.groupby('tache')['quantite'].sum())
-        with col_g2:
-            st.line_chart(df_res.groupby('date')['quantite'].sum())
+with tab_analyse:
+    if not df_filt.empty:
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total Valeurs", int(df_filt['quantite'].sum()))
+        k2.metric("Total Écoles", int(df_filt['nb_ecoles'].sum()))
+        k3.metric("Nb d'entrées", len(df_filt))
+
+        g1, g2 = st.columns(2)
+        with g1:
+            st.write("**Répartition par Tâche**")
+            st.bar_chart(df_filt.groupby('tache')['quantite'].sum())
+        
+        with g2:
+            st.write("**Répartition par Intervenante**")
+            # Graphique avec couleurs personnalisées
+            inter_data = df_filt.groupby('intervenante')['quantite'].sum().reset_index()
+            st.bar_chart(data=inter_data, x='intervenante', y='quantite', color='intervenante')
+            
+        st.write("**Évolution sur la période**")
+        evol_data = df_filt.groupby(['date', 'intervenante'])['quantite'].sum().unstack().fillna(0)
+        st.line_chart(evol_data)
     else:
-        st.warning("Aucune donnée pour ces filtres.")
+        st.warning("Aucune donnée à afficher avec ces filtres.")
 
 with tab_print:
-    if not df_res.empty:
-        st.subheader("📄 Rapport prêt pour impression")
-        st.write(f"**Période :** Du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
-        st.write(f"**Intervenante(s) :** {', '.join(inter_filt)}")
+    if not df_filt.empty:
+        st.subheader("Rapport d'activité")
+        st.write(f"Période : Du {periode[0].strftime('%d/%m/%Y')} au {periode[1].strftime('%d/%m/%Y')}")
         
-        # Tableau formaté pour être propre à l'écran/impression
-        df_print = df_res.sort_values(by='date', ascending=False).copy()
-        df_print['date'] = df_print['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_print)
-        
-        st.info("💡 Astuce : Faites 'Clic droit > Imprimer' ou 'Ctrl+P' pour sauvegarder en PDF.")
+        # Formatage pour l'impression
+        df_p = df_filt.sort_values('date', ascending=False).copy()
+        df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+        st.table(df_p)
+        st.caption("Faites Ctrl+P pour imprimer ce tableau.")
     else:
-        st.write("Veuillez sélectionner des données dans l'onglet 'Analyse' pour générer un rapport.")
+        st.info("Sélectionnez des données dans l'onglet Analyse.")
