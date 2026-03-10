@@ -17,7 +17,7 @@ def get_gsheet_client():
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
     except Exception as e:
-        st.error(f"Erreur de connexion : {e}")
+        st.error(f"Erreur de connexion Google : {e}")
         return None
 
 def load_data():
@@ -28,14 +28,18 @@ def load_data():
             data = client.get_all_records()
             df = pd.DataFrame(data)
             if df.empty: return pd.DataFrame(columns=columns)
-            # Conversion robuste des dates
+            # Conversion forcée en format date
             df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
             return df.dropna(subset=['date'])
     except:
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
-# --- 2. PARAMÈTRES ---
+# --- INITIALISATION ÉTAT ---
+if 'df_act' not in st.session_state:
+    st.session_state.df_act = load_data()
+
+# --- 2. PARAMÈTRES & STYLE ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
 COULEURS_MAP = {"Véronique Maigrié": "#E67E22", "Sylvie Nyssen": "#3498DB"}
 LISTE_TACHES = [
@@ -50,24 +54,14 @@ LISTE_TACHES = [
 
 st.set_page_config(layout="wide", page_title="Suivi Activité N&M", page_icon="📊")
 
-# --- STYLE POUR L'IMPRESSION NETTE ---
+# CSS spécial Impression (masque les menus inutiles)
 st.markdown("""
     <style>
     @media print {
-        /* Masquer la barre latérale, les boutons et les menus Streamlit */
-        section[data-testid="stSidebar"], 
-        .stButtons, 
-        header, 
-        footer, 
-        .stTabs [role="tablist"],
-        [data-testid="stHeader"] {
+        div[data-testid="stSidebar"], div[data-testid="stHeader"], .stButtons, .stTabs [role="tablist"] {
             display: none !important;
         }
-        /* Forcer le contenu à prendre toute la largeur */
-        .main .block-container {
-            padding-top: 1rem !important;
-            max-width: 100% !important;
-        }
+        .main .block-container { padding: 0 !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -78,114 +72,93 @@ with st.sidebar:
     date_sel = st.date_input("Date de l'intervention", date.today())
     choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS)
     st.divider()
-    if st.button("🔄 Synchroniser les données"):
+    if st.button("🔄 Actualiser les données"):
         st.session_state.df_act = load_data()
         st.rerun()
 
-# --- 4. ENCODAGE & RÉCAPITULATIF DU JOUR ---
-col1, col2 = st.columns([1, 1.3])
+# --- 4. FORMULAIRE ET RÉCAP ---
+col1, col2 = st.columns([1, 1.2])
 
 with col1:
-    st.subheader("📝 Nouvel encodage")
-    tache_sel = st.selectbox("Action effectuée", LISTE_TACHES)
-    with st.form("form_activite", clear_on_submit=True):
-        qte = st.number_input("Quantité / Valeur", min_value=1, step=1)
+    st.subheader("📝 Encodage")
+    tache_sel = st.selectbox("Action", LISTE_TACHES)
+    with st.form("f_add", clear_on_submit=True):
+        qte = st.number_input("Quantité", min_value=1, step=1)
         ecoles = 0
         if tache_sel == "NETTOYAGES DES DONNEES CREOS":
-            ecoles = st.number_input("Nombre d'écoles concernées", min_value=1, step=1)
+            ecoles = st.number_input("Nombre d'écoles", min_value=1, step=1)
+        
         if st.form_submit_button("💾 Enregistrer"):
             client = get_gsheet_client()
             if client:
-                new_row = [str(date_sel), choix_inter, tache_sel, int(qte), int(ecoles)]
-                client.append_row(new_row)
+                client.append_row([str(date_sel), choix_inter, tache_sel, int(qte), int(ecoles)])
                 st.session_state.df_act = load_data()
-                st.success("✅ Enregistré !")
+                st.success("C'est dans la boîte !")
                 st.rerun()
 
 with col2:
-    st.subheader(f"📋 Détails du {date_sel.strftime('%d/%m/%Y')}")
-    df_jour = st.session_state.df_act[st.session_state.df_act['date'] == date_sel].copy()
+    st.subheader(f"📋 Aujourd'hui ({date_sel.strftime('%d/%m/%Y')})")
+    df_temp = st.session_state.df_act.copy()
+    df_jour = df_temp[df_temp['date'] == date_sel]
+    
     if not df_jour.empty:
         for i, row in df_jour.iterrows():
-            c_txt, c_btn = st.columns([5, 1])
-            with c_txt:
-                txt = f"**{row['intervenante']}** | {row['tache']} ({row['quantite']})"
-                if row['nb_ecoles'] > 0: txt += f" - {row['nb_ecoles']} écoles"
-                st.write(txt)
-            with c_btn:
-                if st.button("🗑️", key=f"del_{i}"):
-                    client = get_gsheet_client()
-                    # Suppression dans Sheets (Index pandas + 2 car ligne 1=titres)
-                    # Note: on utilise l'index réel de la ligne dans le DataFrame global
-                    idx_sheet = st.session_state.df_act.index[st.session_state.df_act.index == i][0]
-                    client.delete_rows(int(idx_sheet) + 2)
-                    st.session_state.df_act = load_data()
-                    st.rerun()
+            c_a, c_b = st.columns([5, 1])
+            c_a.write(f"**{row['intervenante']}** : {row['tache']} ({row['quantite']})")
+            if c_b.button("🗑️", key=f"d_{i}"):
+                client = get_gsheet_client()
+                client.delete_rows(int(i) + 2)
+                st.session_state.df_act = load_data()
+                st.rerun()
     else:
-        st.info("Aucun encodage pour ce jour.")
+        st.info("Rien à signaler pour cette date.")
 
-# --- 5. REPORTING & IMPRESSION ---
+# --- 5. REPORTING ---
 st.divider()
 st.header("📊 Reporting & Impression")
 
-# FILTRES (Définis AVANT les onglets)
-f1, f2, f3 = st.columns([1, 1, 1.5])
-with f1:
-    per = st.date_input("Sélectionnez la période", [date.today() - timedelta(days=30), date.today()])
-with f2:
-    f_inter = st.multiselect("Intervenantes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
-with f3:
-    f_tache = st.multiselect("Filtrer par tâches", LISTE_TACHES)
+if not st.session_state.df_act.empty:
+    # FILTRES
+    f1, f2, f3 = st.columns([1, 1, 1.5])
+    with f1:
+        d_range = st.date_input("Période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
+    with f2:
+        f_int = st.multiselect("Personnes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
+    with f3:
+        f_tac = st.multiselect("Tâches", LISTE_TACHES)
 
-# CRÉATION DU DATAFRAME FILTRÉ (df_f)
-df_f = st.session_state.df_act.copy()
-if len(per) == 2:
-    df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
-if f_inter:
-    df_f = df_f[df_f['intervenante'].isin(f_inter)]
-if f_tache:
-    df_f = df_f[df_f['tache'].isin(f_tache)]
+    # FILTRAGE DU DF
+    df_f = st.session_state.df_act.copy()
+    if len(d_range) == 2:
+        df_f = df_f[(df_f['date'] >= d_range[0]) & (df_f['date'] <= d_range[1])]
+    if f_int:
+        df_f = df_f[df_f['intervenante'].isin(f_int)]
+    if f_tac:
+        df_f = df_f[df_f['tache'].isin(f_tac)]
 
-# AFFICHAGE DES ONGLETS
-t_stats, t_print = st.tabs(["📊 Statistiques", "🖨️ Mode Impression"])
+    t1, t2 = st.tabs(["Graphiques", "Rapport d'impression"])
 
-with t_stats:
-    if not df_f.empty:
-        s1, s2 = st.columns(2)
-        with s1:
-            st.write("**Répartition par Intervenante**")
-            fig1 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig1, use_container_width=True, key="p_stat_1")
-        with s2:
-            st.write("**Volume total par Tâche**")
-            df_g = df_f.groupby('tache')['quantite'].sum().reset_index()
-            fig2 = px.bar(df_g, x='tache', y='quantite', color='tache', color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig2, use_container_width=True, key="p_stat_2")
-    else:
-        st.warning("⚠️ Aucune donnée pour ces filtres.")
+    with t1:
+        if not df_f.empty:
+            g1, g2 = st.columns(2)
+            with g1:
+                st.plotly_chart(px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Par Intervenante"), use_container_width=True, key="c1")
+            with g2:
+                df_bar = df_f.groupby('tache')['quantite'].sum().reset_index()
+                st.plotly_chart(px.bar(df_bar, x='tache', y='quantite', color='tache', title="Par Tâche"), use_container_width=True, key="c2")
 
-with t_print:
-    if not df_f.empty:
-        st.markdown(f"## RAPPORT D'ACTIVITÉ N&M")
-        st.markdown(f"**Période :** du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
-        
-        p1, p2 = st.columns(2)
-        with p1:
-            st.write("**Répartition des actions (Tâches)**")
-            fig3 = px.pie(df_f, names='tache', values='quantite', color_discrete_sequence=px.colors.qualitative.Safe)
-            st.plotly_chart(fig3, use_container_width=True, key="p_print_1")
-        with p2:
-            st.write("**Répartition des intervenantes**")
-            fig4 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP)
-            st.plotly_chart(fig4, use_container_width=True, key="p_print_2")
-        
-        st.write("### Détails des activités")
-        df_p = df_f.sort_values('date', ascending=False).copy()
-        df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_p[["date", "intervenante", "tache", "quantite", "nb_ecoles"]])
-        
-        st.divider()
-        if st.button("🖨️ LANCER L'IMPRESSION DU RAPPORT"):
-            components.html("<script>window.print();</script>", height=0)
-    else:
-        st.error("Le rapport est vide (vérifiez les filtres de date).")
+    with t2:
+        if not df_f.empty:
+            st.markdown(f"## RAPPORT D'ACTIVITÉ")
+            st.write(f"Période du {d_range[0]} au {d_range[1]}")
+            
+            p1, p2 = st.columns(2)
+            p1.plotly_chart(px.pie(df_f, names='tache', values='quantite', title="Répartition Actions"), use_container_width=True, key="c3")
+            p2.plotly_chart(px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Répartition Personnes"), use_container_width=True, key="c4")
+            
+            st.table(df_f.sort_values('date', ascending=False))
+            
+            if st.button("🖨️ LANCER L'IMPRESSION"):
+                components.html("<script>window.print();</script>", height=0)
+else:
+    st.warning("Base de données vide.")
