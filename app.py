@@ -5,14 +5,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- 1. CONFIGURATION GOOGLE SHEETS ---
-# ⚠️ REMPLACE BIEN L'ID CI-DESSOUS PAR CELUI DE TON URL GOOGLE SHEET
-SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU" 
+# ID nettoyé de tout espace invisible
+SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU"
 SHEET_NAME = "Data"
 
 def get_gsheet_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
     try:
-        # Utilisation des Secrets TOML de Streamlit Cloud
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
@@ -31,19 +30,18 @@ def load_data():
             if df.empty or 'date' not in df.columns:
                 return pd.DataFrame(columns=columns)
             
-            # --- LA LIGNE CRUCIALE POUR LES DATES ---
-            # On transforme le texte de Google Sheets en vraies dates utilisables
-            df['date'] = pd.to_datetime(df['date']).dt.date
+            # Conversion ultra-robuste des dates
+            df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
+            # On supprime les lignes où la date serait devenue invalide (vide)
+            df = df.dropna(subset=['date'])
             return df
     except Exception as e:
+        st.error(f"Erreur technique : {e}")
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
 # --- 2. PARAMÈTRES ET LISTES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
-# Couleurs pour les graphiques
-COULEURS_INTER = {"Véronique Maigrié": "#e67e22", "Sylvie Nyssen": "#3498db"}
-
 LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
@@ -54,14 +52,13 @@ LISTE_TACHES = [
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
-# --- 3. MISE EN PAGE STREAMLIT ---
+# --- 3. MISE EN PAGE ---
 st.set_page_config(layout="wide", page_title="Suivi Activité N&M", page_icon="📊")
 
-# Initialisation de la mémoire de l'application
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
-# --- 4. BARRE LATÉRALE (SIDEBAR) ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.title("📅 Calendrier")
     date_sel = st.date_input("Date de l'intervention", date.today())
@@ -75,7 +72,7 @@ with st.sidebar:
         st.session_state.df_act = load_data()
         st.rerun()
 
-# --- 5. ZONE DE SAISIE (GAUCHE) ET RÉCAPITULATIF (DROITE) ---
+# --- 5. ZONE DE SAISIE ET RÉCAPITULATIF ---
 col_saisie, col_recap = st.columns([1, 1.2])
 
 with col_saisie:
@@ -91,11 +88,8 @@ with col_saisie:
         if st.form_submit_button("💾 Enregistrer l'activité"):
             client = get_gsheet_client()
             if client:
-                # On enregistre la date en format texte standard YYYY-MM-DD
                 new_row = [str(date_sel), choix_inter, tache_sel, int(qte), int(ecoles)]
                 client.append_row(new_row)
-                
-                # Mise à jour immédiate
                 st.session_state.df_act = load_data()
                 st.success("✅ Enregistré avec succès !")
                 st.rerun()
@@ -103,40 +97,31 @@ with col_saisie:
 with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
     
-    if not st.session_state.df_act.empty:
-        df_local = st.session_state.df_act.copy()
-        
-        # Sécurité : on s'assure que 'date' est bien au format date
-        df_local['date'] = pd.to_datetime(df_local['date']).dt.date
-        
+    df_local = st.session_state.df_act.copy()
+    
+    if not df_local.empty:
         # Filtrage
         view_df = df_local[df_local['date'] == date_sel].copy()
         
         if not view_df.empty:
-            # Formatage pour l'affichage
             view_df['date'] = view_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
             st.dataframe(view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
         else:
             st.info(f"Pas d'activité enregistrée pour le {date_sel.strftime('%d/%m/%Y')}.")
-            
-            # --- LE BOUTON DE SECOURS ---
-            if st.checkbox("Afficher les 10 dernières activités toutes dates confondues"):
-                recent_df = df_local.tail(10).copy()
-                recent_df['date'] = recent_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-                st.table(recent_df[["date", "intervenante", "tache", "quantite"]])
+            # La case à cocher de secours apparaît maintenant TOUJOURS si la date est vide
+            if st.checkbox("🔍 Voir les 10 dernières entrées (toutes dates)"):
+                st.table(df_local.tail(10))
     else:
-        st.warning("La base de données semble vide (ou impossible à lire).")
+        st.warning("⚠️ La base de données est vide ou inaccessible.")
 
-# --- 6. STATISTIQUES ET IMPRESSION ---
+# --- 6. STATISTIQUES ---
 st.divider()
 st.header("📊 Analyse & Statistiques")
-
 tab1, tab2 = st.tabs(["🔍 Filtres & Graphiques", "🖨️ Mode Impression"])
 
 with tab1:
     c1, c2, c3 = st.columns(3)
     with c1:
-        # Sélecteur de période
         try:
             per = st.date_input("Période", [date.today() - timedelta(days=7), date.today()])
         except:
@@ -146,7 +131,7 @@ with tab1:
     with c3:
         f_tache = st.multiselect("Tâche(s)", LISTE_TACHES)
 
-    # Filtrage global pour les stats
+    # Filtrage global
     df_f = st.session_state.df_act.copy()
     if len(per) == 2:
         df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
@@ -162,20 +147,13 @@ with tab1:
             st.bar_chart(df_f.groupby('tache')['quantite'].sum())
         with g2:
             st.write("**Répartition par Intervenante**")
-            # Graphique avec les couleurs distinctes
             stats_int = df_f.groupby('intervenante')['quantite'].sum().reset_index()
             st.bar_chart(data=stats_int, x='intervenante', y='quantite', color='intervenante')
     else:
-        st.write("Sélectionnez une période avec des données.")
+        st.write("Aucune donnée sur cette période.")
 
 with tab2:
     if not df_f.empty:
-        st.subheader(f"Rapport d'activité détaillé")
-        st.write(f"Période : du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
-        
-        # Préparation du tableau pour l'impression (Tableau fixe, pas de scroll)
         df_print = df_f.sort_values('date', ascending=False).copy()
-        df_print['date'] = pd.to_datetime(df_print['date']).dt.strftime('%d/%m/%Y')
+        df_print['date'] = df_print['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
         st.table(df_print)
-    else:
-        st.info("Aucune donnée à imprimer.")
