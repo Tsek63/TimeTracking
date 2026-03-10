@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATION GOOGLE SHEETS ---
 # Remplacez par l'ID de votre feuille (présent dans l'URL de votre Google Sheet)
-SHEET_ID = "VOTRE_ID_DE_FEUILLE_ICI"
+SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU"
 SHEET_NAME = "Data"
 
 def get_gsheet_client():
