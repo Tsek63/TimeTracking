@@ -24,25 +24,21 @@ def load_data():
     try:
         client = get_gsheet_client()
         if client:
-            # --- TEST DE LECTURE BRUTE ---
-            raw_values = client.get_all_values()
-            if len(raw_values) > 0:
-                st.sidebar.write("✅ Titres trouvés dans Sheet :", raw_values[0])
-            else:
-                st.sidebar.error("❌ La feuille semble totalement vide !")
-            # -----------------------------
-
             data = client.get_all_records()
             df = pd.DataFrame(data)
             
-            if df.empty:
+            if df.empty or 'date' not in df.columns:
                 return pd.DataFrame(columns=columns)
             
+            # Conversion ultra-robuste des dates
             df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
-            return df.dropna(subset=['date'])
+            # On supprime les lignes où la date serait devenue invalide (vide)
+            df = df.dropna(subset=['date'])
+            return df
     except Exception as e:
-        st.sidebar.error(f"Erreur technique : {e}")
+        st.error(f"Erreur technique : {e}")
         return pd.DataFrame(columns=columns)
+    return pd.DataFrame(columns=columns)
 
 # --- 2. PARAMÈTRES ET LISTES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
