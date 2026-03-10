@@ -5,13 +5,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATION GOOGLE SHEETS ---
-# REMPLACEZ par l'ID de votre feuille (trouvé dans l'URL de votre Google Sheet)
 SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU" 
 SHEET_NAME = "Data"
 
 def get_gsheet_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
-    # Utilise les secrets configurés en TOML sur Streamlit Cloud
     try:
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
@@ -21,22 +19,25 @@ def get_gsheet_client():
         return None
 
 def load_data():
+    columns = ["date", "intervenante", "tache", "quantite", "nb_ecoles"]
     try:
         client = get_gsheet_client()
         if client:
             data = client.get_all_records()
             df = pd.DataFrame(data)
-            if not df.empty:
-                df['date'] = pd.to_datetime(df['date']).dt.date
+            
+            if df.empty or 'date' not in df.columns:
+                return pd.DataFrame(columns=columns)
+            
+            # Conversion robuste : On transforme ce qui vient du Cloud en vraies dates Python
+            df['date'] = pd.to_datetime(df['date'], dayfirst=False).dt.date
             return df
-    except:
-        pass
-    return pd.DataFrame(columns=["date", "intervenante", "tache", "quantite", "nb_ecoles"])
+    except Exception as e:
+        st.error(f"Erreur de chargement : {e}")
+    return pd.DataFrame(columns=columns)
 
 # --- PARAMÈTRES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
-COULEURS_INTER = {"Véronique Maigrié": "#e67e22", "Sylvie Nyssen": "#3498db"} # Orange et Bleu
-
 LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
@@ -49,24 +50,20 @@ LISTE_TACHES = [
 
 st.set_page_config(layout="wide", page_title="Gestion Activité N&M", page_icon="📊")
 
-# Initialisation session
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("📅 Paramètres")
-    date_sel = st.date_input("Date de l'activité", date.today())
+    date_sel = st.date_input("Choisir une date", date.today())
+    # Affichage du format FR pour rassurer l'utilisateur
+    st.info(f"Date sélectionnée : **{date_sel.strftime('%d/%m/%Y')}**")
     
-    if 'last_inter' not in st.session_state:
-        st.session_state.last_inter = LISTE_REDACTEURS[0]
-        
-    choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS, 
-                               index=LISTE_REDACTEURS.index(st.session_state.last_inter))
-    st.session_state.last_inter = choix_inter
+    choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS)
 
     st.divider()
-    if st.button("🔄 Actualiser les données Cloud"):
+    if st.button("🔄 Synchroniser les données"):
         st.session_state.df_act = load_data()
         st.rerun()
 
@@ -75,124 +72,68 @@ col_saisie, col_recap = st.columns([1, 1.2])
 
 with col_saisie:
     st.subheader("📝 Encodage")
-    # On utilise un formulaire pour regrouper les champs
     with st.form("form_activite", clear_on_submit=True):
         tache_sel = st.selectbox("Type de tâche", LISTE_TACHES)
         qte = st.number_input("Valeur (Nombre entier)", min_value=0, step=1, value=1)
-        
         ecoles = 0
         if tache_sel == "NETTOYAGES DES DONNEES CREOS":
-            ecoles = st.number_input("Nombre d'écoles concernées", min_value=0, step=1, value=0)
+            ecoles = st.number_input("Nombre d'écoles", min_value=0, step=1, value=0)
 
-        submit = st.form_submit_button("💾 Enregistrer dans le Cloud")
-
-        if submit:
-            with st.spinner("Envoi vers Google Sheets..."):
-                client = get_gsheet_client()
-                if client:
-                    try:
-                        # 1. Préparation de la ligne (la date est convertie en texte pour Excel)
-                        new_row = [
-                            str(date_sel), 
-                            choix_inter, 
-                            tache_sel, 
-                            int(qte), 
-                            int(ecoles) if tache_sel == "NETTOYAGES DES DONNEES CREOS" else 0
-                        ]
-                        
-                        # 2. Envoi réel vers la Google Sheet
-                        client.append_row(new_row)
-                        
-                        # 3. MISE À JOUR CRUCIALE : On recharge les données dans la session
-                        # Cela permet au tableau de droite de "voir" la nouvelle ligne
-                        st.session_state.df_act = load_data()
-                        
-                        st.success(f"✅ Activité enregistrée pour {choix_inter} !")
-                        
-                        # 4. On relance l'application pour rafraîchir tous les tableaux
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"Erreur lors de l'enregistrement : {e}")
+        if st.form_submit_button("💾 Enregistrer"):
+            client = get_gsheet_client()
+            if client:
+                # On enregistre en format ISO (YYYY-MM-DD) pour la compatibilité Cloud
+                new_row = [str(date_sel), choix_inter, tache_sel, int(qte), int(ecoles)]
+                client.append_row(new_row)
+                st.session_state.df_act = load_data()
+                st.success("✅ Enregistré !")
+                st.rerun()
 
 with col_recap:
     st.subheader(f"📋 Activités du {date_sel.strftime('%d/%m/%Y')}")
     
-    # On vérifie si on a des données avant d'essayer de filtrer
     if not st.session_state.df_act.empty:
-        # Filtrage sur la date sélectionnée dans le calendrier à gauche
+        # Filtrage
         mask = (st.session_state.df_act['date'] == date_sel)
-        view_df = st.session_state.df_act[mask]
+        view_df = st.session_state.df_act[mask].copy()
         
         if not view_df.empty:
-            # On affiche le tableau trié par la saisie la plus récente en haut
-            st.dataframe(
-                view_df[["intervenante", "tache", "quantite", "nb_ecoles"]].sort_index(ascending=False), 
-                use_container_width=True
-            )
+            # FORMATTAGE VISUEL pour le tableau de droite
+            view_df['date'] = view_df['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            st.dataframe(view_df[["date", "intervenante", "tache", "quantite", "nb_ecoles"]], use_container_width=True)
         else:
-            st.info("Aucun encodage trouvé pour ce jour précis.")
-    else:
-        st.warning("La base de données semble vide ou n'a pas pu être chargée.")
+            st.info("Aucune activité pour ce jour.")
 
-# --- SECTION STATISTIQUES ---
+# --- SECTION STATISTIQUES & IMPRESSION ---
 st.divider()
-st.header("📊 Analyse & Reporting")
+st.header("📊 Reporting")
 
-tab_analyse, tab_print = st.tabs(["🔍 Filtres & Graphiques", "🖨️ Format Impression"])
+tab_stats, tab_print = st.tabs(["📊 Graphiques", "🖨️ Mode Impression"])
 
-# Logique de filtrage commune
-with tab_analyse:
-    c1, c2, c3 = st.columns(3)
+# Calcul des filtres pour les deux onglets
+with tab_stats:
+    c1, c2 = st.columns(2)
     with c1:
-        periode = st.date_input("Période", [date.today() - timedelta(days=30), date.today()])
+        per = st.date_input("Période", [date.today() - timedelta(days=7), date.today()])
     with c2:
-        f_inter = st.multiselect("Intervenante(s)", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
-    with c3:
-        f_tache = st.multiselect("Tâche(s)", LISTE_TACHES)
+        inter_f = st.multiselect("Filtrer par intervenante", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
 
-# Application des filtres
-df_filt = st.session_state.df_act.copy()
-if len(periode) == 2:
-    df_filt = df_filt[(df_filt['date'] >= periode[0]) & (df_filt['date'] <= periode[1])]
-if f_inter:
-    df_filt = df_filt[df_filt['intervenante'].isin(f_inter)]
-if f_tache:
-    df_filt = df_filt[df_filt['tache'].isin(f_tache)]
+df_f = st.session_state.df_act.copy()
+if len(per) == 2:
+    df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
+if inter_f:
+    df_f = df_f[df_f['intervenante'].isin(inter_f)]
 
-with tab_analyse:
-    if not df_filt.empty:
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Total Valeurs", int(df_filt['quantite'].sum()))
-        k2.metric("Total Écoles", int(df_filt['nb_ecoles'].sum()))
-        k3.metric("Nb d'entrées", len(df_filt))
-
-        g1, g2 = st.columns(2)
-        with g1:
-            st.write("**Répartition par Tâche**")
-            st.bar_chart(df_filt.groupby('tache')['quantite'].sum())
-        
-        with g2:
-            st.write("**Répartition par Intervenante**")
-            # Graphique avec couleurs personnalisées
-            inter_data = df_filt.groupby('intervenante')['quantite'].sum().reset_index()
-            st.bar_chart(data=inter_data, x='intervenante', y='quantite', color='intervenante')
-            
-        st.write("**Évolution sur la période**")
-        evol_data = df_filt.groupby(['date', 'intervenante'])['quantite'].sum().unstack().fillna(0)
-        st.line_chart(evol_data)
-    else:
-        st.warning("Aucune donnée à afficher avec ces filtres.")
+with tab_stats:
+    if not df_f.empty:
+        st.bar_chart(data=df_f.groupby('intervenante')['quantite'].sum().reset_index(), x='intervenante', y='quantite', color='intervenante')
+        st.write("**Détail des tâches sur la période :**")
+        st.bar_chart(df_f.groupby('tache')['quantite'].sum())
 
 with tab_print:
-    if not df_filt.empty:
-        st.subheader("Rapport d'activité")
-        st.write(f"Période : Du {periode[0].strftime('%d/%m/%Y')} au {periode[1].strftime('%d/%m/%Y')}")
-        
-        # Formatage pour l'impression
-        df_p = df_filt.sort_values('date', ascending=False).copy()
-        df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_p)
-        st.caption("Faites Ctrl+P pour imprimer ce tableau.")
-    else:
-        st.info("Sélectionnez des données dans l'onglet Analyse.")
+    if not df_f.empty:
+        st.subheader(f"Rapport du {per[0].strftime('%d/%m/%Y')} au {per[1].strftime('%d/%m/%Y')}")
+        # On crée une copie pour l'affichage sans modifier les données de calcul
+        df_display = df_f.sort_values('date', ascending=False).copy()
+        df_display['date'] = df_display['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+        st.table(df_display)
