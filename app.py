@@ -50,20 +50,27 @@ LISTE_TACHES = [
 
 st.set_page_config(layout="wide", page_title="Suivi Activité N&M", page_icon="📊")
 
-# Style pour masquer les éléments inutiles à l'impression
+# --- STYLE POUR L'IMPRESSION NETTE ---
 st.markdown("""
     <style>
     @media print {
-        header, .stSidebar, .stButtons, [data-testid="stHeader"], .stTabs [role="tablist"], .stAlert {
+        /* Masquer la barre latérale, les boutons et les menus Streamlit */
+        section[data-testid="stSidebar"], 
+        .stButtons, 
+        header, 
+        footer, 
+        .stTabs [role="tablist"],
+        [data-testid="stHeader"] {
             display: none !important;
         }
-        .main .block-container { padding-top: 0rem !important; }
+        /* Forcer le contenu à prendre toute la largeur */
+        .main .block-container {
+            padding-top: 1rem !important;
+            max-width: 100% !important;
+        }
     }
     </style>
 """, unsafe_allow_html=True)
-
-if 'df_act' not in st.session_state:
-    st.session_state.df_act = load_data()
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
