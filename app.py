@@ -4,7 +4,6 @@ from datetime import date, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
-import streamlit.components.v1 as components
 
 # --- 1. CONFIGURATION ---
 SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU"
@@ -17,7 +16,7 @@ def get_gsheet_client():
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
     except Exception as e:
-        st.error(f"Erreur Google : {e}")
+        st.error(f"Erreur de connexion : {e}")
         return None
 
 def load_data():
@@ -51,27 +50,15 @@ LISTE_TACHES = [
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
-st.set_page_config(layout="wide", page_title="Suivi Activité N&M", page_icon="📊")
-
-# Style pour masquer les menus à l'impression
-st.markdown("""
-    <style>
-    @media print {
-        header, [data-testid="stSidebar"], .stButtons, [data-testid="stHeader"], footer {
-            display: none !important;
-        }
-        .main .block-container { padding: 0 !important; }
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(layout="wide", page_title="Suivi Activité N&M")
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("📅 Menu")
-    date_sel = st.date_input("Date du jour", date.today())
+    date_sel = st.date_input("Choisir une date", date.today())
     choix_inter = st.selectbox("Intervenante", LISTE_REDACTEURS)
     st.divider()
-    if st.button("🔄 Actualiser les données"):
+    if st.button("🔄 Rafraîchir les données"):
         st.session_state.df_act = load_data()
         st.rerun()
 
@@ -79,8 +66,8 @@ with st.sidebar:
 c1, c2 = st.columns([1, 1.2])
 
 with c1:
-    st.subheader("📝 Nouvel encodage")
-    t_sel = st.selectbox("Action effectuée", LISTE_TACHES)
+    st.subheader("📝 Encodage")
+    t_sel = st.selectbox("Action", LISTE_TACHES)
     with st.form("form_saisie", clear_on_submit=True):
         qte = st.number_input("Quantité", min_value=1, step=1)
         ecoles = 0
@@ -91,11 +78,11 @@ with c1:
             if client:
                 client.append_row([str(date_sel), choix_inter, t_sel, int(qte), int(ecoles)])
                 st.session_state.df_act = load_data()
-                st.success("Enregistré !")
+                st.success("Donnée ajoutée !")
                 st.rerun()
 
 with c2:
-    st.subheader(f"📋 Détails du {date_sel.strftime('%d/%m/%Y')}")
+    st.subheader(f"📋 Historique du {date_sel.strftime('%d/%m/%Y')}")
     df_j = st.session_state.df_act[st.session_state.df_act['date'] == date_sel].copy()
     if not df_j.empty:
         for i, row in df_j.iterrows():
@@ -107,23 +94,23 @@ with c2:
                 st.session_state.df_act = load_data()
                 st.rerun()
     else:
-        st.info("Aucun encodage pour cette date.")
+        st.info("Aucune donnée pour ce jour.")
 
 # --- 5. REPORTING ---
 st.divider()
-st.header("📊 Reporting & Impression")
+st.header("📊 Statistiques & Impression")
 
 if not st.session_state.df_act.empty:
-    # Filtres
+    # FILTRES
     f1, f2, f3 = st.columns([1, 1, 1.5])
     with f1:
         per = st.date_input("Période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
     with f2:
-        f_int = st.multiselect("Intervenantes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
+        f_int = st.multiselect("Filtrer Intervenantes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
     with f3:
-        f_tac = st.multiselect("Tâches", LISTE_TACHES)
+        f_tac = st.multiselect("Filtrer Tâches", LISTE_TACHES)
 
-    # Filtrage du DataFrame
+    # FILTRAGE
     df_f = st.session_state.df_act.copy()
     if len(per) == 2:
         df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
@@ -132,31 +119,40 @@ if not st.session_state.df_act.empty:
     if f_tac:
         df_f = df_f[df_f['tache'].isin(f_tac)]
 
-    # Affichage du Rapport
-    if not df_f.empty:
-        st.markdown("---")
-        st.markdown(f"## 📋 RAPPORT D'ACTIVITÉ")
-        st.write(f"Extraction du **{per[0]}** au **{per[1]}**")
-        
-        # Graphiques
-        p1, p2 = st.columns(2)
-        with p1:
-            fig1 = px.pie(df_f, names='tache', values='quantite', title="Actions")
-            st.plotly_chart(fig1, use_container_width=True, key="graph_1")
-        with p2:
-            fig2 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Personnes")
-            st.plotly_chart(fig2, use_container_width=True, key="graph_2")
-        
-        # Tableau formaté pour l'impression (st.table est bien plus fiable à l'impression)
-        st.write("### Tableau détaillé")
-        df_p = df_f.sort_values('date', ascending=False).copy()
-        df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-        st.table(df_p[["date", "intervenante", "tache", "quantite", "nb_ecoles"]])
-        
-        st.divider()
-        if st.button("🖨️ LANCER L'IMPRESSION DU RAPPORT"):
-            components.html("<script>window.print();</script>", height=0)
-    else:
-        st.warning("Aucune donnée pour ces filtres.")
+    # ONGLETS
+    t1, t2 = st.tabs(["📊 Graphiques", "🖨️ Mode Impression"])
+
+    with t1:
+        if not df_f.empty:
+            g1, g2 = st.columns(2)
+            with g1:
+                fig1 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Répartition par Personne")
+                st.plotly_chart(fig1, use_container_width=True, key="g1")
+            with g2:
+                df_bar = df_f.groupby('tache')['quantite'].sum().reset_index()
+                fig2 = px.bar(df_bar, x='tache', y='quantite', color='tache', title="Volume par Action")
+                st.plotly_chart(fig2, use_container_width=True, key="g2")
+        else:
+            st.warning("Aucune donnée correspondante.")
+
+    with t2:
+        if not df_f.empty:
+            st.markdown(f"## RAPPORT D'ACTIVITÉ")
+            st.write(f"Période : {per[0]} au {per[1]}")
+            
+            p1, p2 = st.columns(2)
+            with p1:
+                fig3 = px.pie(df_f, names='tache', values='quantite', title="Actions")
+                st.plotly_chart(fig3, use_container_width=True, key="g3")
+            with p2:
+                fig4 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Personnes")
+                st.plotly_chart(fig4, use_container_width=True, key="g4")
+            
+            st.write("### Détails des lignes")
+            df_p = df_f.sort_values('date', ascending=False).copy()
+            df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
+            st.table(df_p)
+            
+            st.info("💡 Pour imprimer : Utilisez le raccourci clavier Ctrl + P")
 else:
-    st.info("La base de données est vide.")
+    st.info("La base est vide.")
