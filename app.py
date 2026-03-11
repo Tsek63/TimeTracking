@@ -37,9 +37,13 @@ def load_data():
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
-# --- 2. PARAMÈTRES ---
+# --- 2. PARAMÈTRES (Couleurs mises à jour) ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
-COULEURS_MAP = {"Véronique Maigrié": "#E67E22", "Sylvie Nyssen": "#3498DB"}
+COULEURS_MAP = {
+    "Véronique Maigrié": "#FF00FF",  # Rose Fuchsia
+    "Sylvie Nyssen": "#008080"       # Bleu Canard
+}
+
 LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
@@ -82,7 +86,7 @@ with c1:
                 st.rerun()
 
 with c2:
-    st.subheader(f"📋 Historique du {date_sel.strftime('%d/%m/%Y')}")
+    st.subheader(f"📋 Détails du {date_sel.strftime('%d/%m/%Y')}")
     df_j = st.session_state.df_act[st.session_state.df_act['date'] == date_sel].copy()
     if not df_j.empty:
         for i, row in df_j.iterrows():
@@ -98,59 +102,70 @@ with c2:
 
 # --- 5. REPORTING ---
 st.divider()
-st.header("📊 Statistiques & Impression")
+st.header("📊 Statistiques & Synthèse")
 
 if not st.session_state.df_act.empty:
+    # FILTRES DE PÉRIODE
+    st.write("### 📅 Choix de la période")
     f1, f2, f3 = st.columns([1, 1, 1.5])
     with f1:
-        per = st.date_input("Période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
+        # Permet de choisir un jour unique ou une plage (semaine, mois, année)
+        per = st.date_input("Sélectionnez les dates", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
     with f2:
         f_int = st.multiselect("Filtrer Intervenantes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
     with f3:
         f_tac = st.multiselect("Filtrer Tâches", LISTE_TACHES)
 
+    # FILTRAGE DES DONNÉES
     df_f = st.session_state.df_act.copy()
-    if len(per) == 2:
-        df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
+    if isinstance(per, list) or isinstance(per, tuple):
+        if len(per) == 2:
+            df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
+        elif len(per) == 1:
+            df_f = df_f[df_f['date'] == per[0]]
+
     if f_int:
         df_f = df_f[df_f['intervenante'].isin(f_int)]
     if f_tac:
         df_f = df_f[df_f['tache'].isin(f_tac)]
 
-    # ONGLETS
-    t1, t2 = st.tabs(["📊 Graphiques", "🖨️ Mode Impression"])
+    # AFFICHAGE DES GRAPHES
+    if not df_f.empty:
+        g1, g2 = st.columns(2)
+        with g1:
+            fig1 = px.pie(df_f, names='intervenante', values='quantite', 
+                          color='intervenante', color_discrete_map=COULEURS_MAP, 
+                          title="Répartition par Intervenante")
+            st.plotly_chart(fig1, use_container_width=True)
+        with g2:
+            fig2 = px.pie(df_f, names='tache', values='quantite', 
+                          title="Répartition par Tâche", color_discrete_sequence=px.colors.qualitative.Safe)
+            st.plotly_chart(fig2, use_container_width=True)
 
-    with t1:
-        if not df_f.empty:
-            g1, g2 = st.columns(2)
-            with g1:
-                fig1 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Répartition par Personne")
-                st.plotly_chart(fig1, use_container_width=True, key="g1")
-            with g2:
-                df_bar = df_f.groupby('tache')['quantite'].sum().reset_index()
-                fig2 = px.bar(df_bar, x='tache', y='quantite', color='tache', title="Volume par Action")
-                st.plotly_chart(fig2, use_container_width=True, key="g2")
-        else:
-            st.warning("Aucune donnée correspondante.")
-
-    with t2:
-        if not df_f.empty:
-            st.markdown(f"## RAPPORT D'ACTIVITÉ")
-            st.write(f"Période : {per[0]} au {per[1]}")
-            
-            p1, p2 = st.columns(2)
-            with p1:
-                fig3 = px.pie(df_f, names='tache', values='quantite', title="Actions")
-                st.plotly_chart(fig3, use_container_width=True, key="g3")
-            with p2:
-                fig4 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Personnes")
-                st.plotly_chart(fig4, use_container_width=True, key="g4")
-            
-            st.write("### Détails des lignes")
-            df_p = df_f.sort_values('date', ascending=False).copy()
-            df_p['date'] = df_p['date'].apply(lambda x: x.strftime('%d/%m/%Y'))
-            st.table(df_p)
-        else:
-            st.info("Rien à afficher.")
+        # --- NOUVELLE SECTION : SYNTHÈSE PAR TÂCHE ---
+        st.markdown("---")
+        st.subheader("📋 Synthèse des totaux par tâche")
+        st.info(f"Période analysée : du {per[0]} au {per[len(per)-1] if len(per)>1 else per[0]}")
+        
+        # Groupement par tâche
+        df_synth = df_f.groupby('tache').agg({
+            'quantite': 'sum',
+            'nb_ecoles': 'sum'
+        }).reset_index()
+        
+        # Renommer les colonnes pour que ce soit plus joli
+        df_synth.columns = ["Action / Tâche", "Total Quantité", "Total Écoles (si Creos)"]
+        
+        # Ajout d'une ligne de total général tout en bas
+        total_q = df_synth["Total Quantité"].sum()
+        
+        # Affichage du tableau de synthèse
+        st.table(df_synth)
+        
+        # Mise en évidence du total global
+        st.metric(label="TOTAL GÉNÉRAL SUR LA PÉRIODE", value=int(total_q))
+        
+    else:
+        st.warning("Aucune donnée pour les filtres sélectionnés.")
 else:
     st.info("La base est vide.")
