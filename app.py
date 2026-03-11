@@ -54,7 +54,10 @@ LISTE_TACHES = [
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
-st.set_page_config(layout="wide", page_title="Suivi Activité N&M")
+st.set_page_config(layout="wide", page_title="Creos Extrascolaire - Time tracking", page_icon="⏱️")
+
+# --- TITRE GÉNÉRAL ---
+st.title("🚀 Creos Extrascolaire - Time tracking")
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -114,16 +117,11 @@ if not st.session_state.df_act.empty:
         f_tac = st.multiselect("Filtrer Tâches", LISTE_TACHES)
 
     df_f = st.session_state.df_act.copy()
-    if isinstance(per, list) or isinstance(per, tuple):
-        if len(per) == 2:
-            df_f = df_f[(df_f['date'] >= per[0]) & (df_f['date'] <= per[1])]
-        elif len(per) == 1:
-            df_f = df_f[df_f['date'] == per[0]]
-
-    if f_int:
-        df_f = df_f[df_f['intervenante'].isin(f_int)]
-    if f_tac:
-        df_f = df_f[df_f['tache'].isin(f_tac)]
+    p_start, p_end = (per[0], per[1]) if len(per) == 2 else (per[0], per[0])
+    df_f = df_f[(df_f['date'] >= p_start) & (df_f['date'] <= p_end)]
+    
+    if f_int: df_f = df_f[df_f['intervenante'].isin(f_int)]
+    if f_tac: df_f = df_f[df_f['tache'].isin(f_tac)]
 
     if not df_f.empty:
         g1, g2 = st.columns(2)
@@ -135,27 +133,36 @@ if not st.session_state.df_act.empty:
             st.plotly_chart(fig2, use_container_width=True)
 
         st.markdown("---")
-        
-        # Préparation de la synthèse
         df_synth = df_f.groupby('tache').agg({'quantite': 'sum', 'nb_ecoles': 'sum'}).reset_index()
         df_synth.columns = ["Action / Tâche", "Total Quantité", "Total Écoles"]
         
-        # --- BOUTON EXPORT EXCEL ---
-        # Création du fichier Excel en mémoire
+        # --- LOGIQUE EXPORT EXCEL AMÉLIORÉE ---
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_synth.to_excel(writer, index=False, sheet_name='Synthèse')
+            # Création d'un petit DataFrame pour l'en-tête du fichier Excel
+            header_info = pd.DataFrame([
+                ["TITRE :", "Creos Extrascolaire - Time tracking"],
+                ["PÉRIODE :", f"Du {p_start} au {p_end}"],
+                ["DATE EXPORT :", str(date.today())],
+                [] # Ligne vide
+            ])
+            header_info.to_excel(writer, index=False, header=False, sheet_name='Synthèse', startrow=0)
+            df_synth.to_excel(writer, index=False, sheet_name='Synthèse', startrow=5)
             df_f.to_excel(writer, index=False, sheet_name='Données Brutes')
+            
+            # Ajustement automatique des colonnes Excel
+            worksheet = writer.sheets['Synthèse']
+            worksheet.set_column('A:C', 25)
+
         excel_data = output.getvalue()
 
         col_txt, col_btn = st.columns([3, 1])
-        with col_txt:
-            st.subheader("📋 Synthèse par tâche")
+        with col_txt: st.subheader("📋 Synthèse par tâche")
         with col_btn:
             st.download_button(
                 label="📥 Exporter vers Excel",
                 data=excel_data,
-                file_name=f"rapport_NM_{per[0]}.xlsx",
+                file_name=f"Creos_Tracking_{p_start}_{p_end}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
@@ -166,3 +173,12 @@ if not st.session_state.df_act.empty:
         st.warning("Aucune donnée pour les filtres sélectionnés.")
 else:
     st.info("La base est vide.")
+
+# --- COPYRIGHT ---
+st.markdown("---")
+st.markdown(
+    "<div style='text-align: center; color: grey; font-size: 0.8em;'>"
+    "© AJH & Gemini 2026"
+    "</div>", 
+    unsafe_allow_html=True
+)
