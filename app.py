@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
+import io
 
 # --- 1. CONFIGURATION ---
 SHEET_ID = "195v8jf2n1jjVQuWlw1s_ka32bu0K13mGrTUnksEp3GU"
@@ -33,11 +34,10 @@ def load_data():
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(columns=columns)
 
-# --- INITIALISATION ---
 if 'df_act' not in st.session_state:
     st.session_state.df_act = load_data()
 
-# --- 2. PARAMÈTRES (Couleurs mises à jour) ---
+# --- 2. PARAMÈTRES ---
 LISTE_REDACTEURS = ["Véronique Maigrié", "Sylvie Nyssen"]
 COULEURS_MAP = {
     "Véronique Maigrié": "#FF00FF",  # Rose Fuchsia
@@ -100,23 +100,19 @@ with c2:
     else:
         st.info("Aucune donnée pour ce jour.")
 
-# --- 5. REPORTING ---
+# --- 5. REPORTING & EXPORT ---
 st.divider()
 st.header("📊 Statistiques & Synthèse")
 
 if not st.session_state.df_act.empty:
-    # FILTRES DE PÉRIODE
-    st.write("### 📅 Choix de la période")
     f1, f2, f3 = st.columns([1, 1, 1.5])
     with f1:
-        # Permet de choisir un jour unique ou une plage (semaine, mois, année)
-        per = st.date_input("Sélectionnez les dates", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
+        per = st.date_input("Sélectionnez la période", [min(st.session_state.df_act['date']), max(st.session_state.df_act['date'])])
     with f2:
         f_int = st.multiselect("Filtrer Intervenantes", LISTE_REDACTEURS, default=LISTE_REDACTEURS)
     with f3:
         f_tac = st.multiselect("Filtrer Tâches", LISTE_TACHES)
 
-    # FILTRAGE DES DONNÉES
     df_f = st.session_state.df_act.copy()
     if isinstance(per, list) or isinstance(per, tuple):
         if len(per) == 2:
@@ -129,41 +125,42 @@ if not st.session_state.df_act.empty:
     if f_tac:
         df_f = df_f[df_f['tache'].isin(f_tac)]
 
-    # AFFICHAGE DES GRAPHES
     if not df_f.empty:
         g1, g2 = st.columns(2)
         with g1:
-            fig1 = px.pie(df_f, names='intervenante', values='quantite', 
-                          color='intervenante', color_discrete_map=COULEURS_MAP, 
-                          title="Répartition par Intervenante")
+            fig1 = px.pie(df_f, names='intervenante', values='quantite', color='intervenante', color_discrete_map=COULEURS_MAP, title="Répartition par Intervenante")
             st.plotly_chart(fig1, use_container_width=True)
         with g2:
-            fig2 = px.pie(df_f, names='tache', values='quantite', 
-                          title="Répartition par Tâche", color_discrete_sequence=px.colors.qualitative.Safe)
+            fig2 = px.pie(df_f, names='tache', values='quantite', title="Répartition par Tâche", color_discrete_sequence=px.colors.qualitative.Safe)
             st.plotly_chart(fig2, use_container_width=True)
 
-        # --- NOUVELLE SECTION : SYNTHÈSE PAR TÂCHE ---
         st.markdown("---")
-        st.subheader("📋 Synthèse des totaux par tâche")
-        st.info(f"Période analysée : du {per[0]} au {per[len(per)-1] if len(per)>1 else per[0]}")
         
-        # Groupement par tâche
-        df_synth = df_f.groupby('tache').agg({
-            'quantite': 'sum',
-            'nb_ecoles': 'sum'
-        }).reset_index()
+        # Préparation de la synthèse
+        df_synth = df_f.groupby('tache').agg({'quantite': 'sum', 'nb_ecoles': 'sum'}).reset_index()
+        df_synth.columns = ["Action / Tâche", "Total Quantité", "Total Écoles"]
         
-        # Renommer les colonnes pour que ce soit plus joli
-        df_synth.columns = ["Action / Tâche", "Total Quantité", "Total Écoles (si Creos)"]
-        
-        # Ajout d'une ligne de total général tout en bas
-        total_q = df_synth["Total Quantité"].sum()
-        
-        # Affichage du tableau de synthèse
+        # --- BOUTON EXPORT EXCEL ---
+        # Création du fichier Excel en mémoire
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_synth.to_excel(writer, index=False, sheet_name='Synthèse')
+            df_f.to_excel(writer, index=False, sheet_name='Données Brutes')
+        excel_data = output.getvalue()
+
+        col_txt, col_btn = st.columns([3, 1])
+        with col_txt:
+            st.subheader("📋 Synthèse par tâche")
+        with col_btn:
+            st.download_button(
+                label="📥 Exporter vers Excel",
+                data=excel_data,
+                file_name=f"rapport_NM_{per[0]}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
         st.table(df_synth)
-        
-        # Mise en évidence du total global
-        st.metric(label="TOTAL GÉNÉRAL SUR LA PÉRIODE", value=int(total_q))
+        st.metric(label="TOTAL GÉNÉRAL", value=int(df_synth["Total Quantité"].sum()))
         
     else:
         st.warning("Aucune donnée pour les filtres sélectionnés.")
