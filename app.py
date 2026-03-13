@@ -59,7 +59,7 @@ st.set_page_config(layout="wide", page_title="Creos Extrascolaire - Time trackin
 # --- TITRE GÉNÉRAL avec bouton Utilisateurs ES ---
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.title("🚀 Creos Extrascolaire - Time tracking")
+    st.title("⏱️ Creos Extrascolaire - Time tracking")
 with col_btn:
     st.markdown("<br>", unsafe_allow_html=True)
     st.link_button("👥 Utilisateurs ES", "https://userscreoses-ej6ntk35eyyz5ttkdd6kzx.streamlit.app/")
