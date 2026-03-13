@@ -48,16 +48,21 @@ LISTE_TACHES = [
     "DEPANNAGE TELEPHONIQUE", "DEPANNAGE MAIL", "SUIVI DEPLOIEMENT TELEPHONIQUE",
     "SUIVI DEPLOIEMENT MAIL", "VISIO DE PRESENTATION", "VISIO DIVERS",
     "MAIL DIVERS", "MODIFICATIONS FICHIER PO", "JOURNEE DE FORMATION",
-    "SUIVI ADMIN FORMATION", "MATINEE D’ACCOMPAGNEMENT", 
-    "SUIVI MATINEE D’ACCOMPAGNEMENT", "ENCODAGE TICKET", "SUIVI FICHIER TICKETS",
+    "SUIVI ADMIN FORMATION", "MATINEE D'ACCOMPAGNEMENT", 
+    "SUIVI MATINEE D'ACCOMPAGNEMENT", "ENCODAGE TICKET", "SUIVI FICHIER TICKETS",
     "MODIFICATION - CREATION DOC", "MODIFICATION – CREATION VIDEO",
     "NETTOYAGES DES DONNEES CREOS"
 ]
 
 st.set_page_config(layout="wide", page_title="Creos Extrascolaire - Time tracking", page_icon="⏱️")
 
-# --- TITRE GÉNÉRAL ---
-st.title("🚀 Creos Extrascolaire - Time tracking")
+# --- TITRE GÉNÉRAL avec bouton Utilisateurs ES ---
+col_title, col_btn = st.columns([5, 1])
+with col_title:
+    st.title("🚀 Creos Extrascolaire - Time tracking")
+with col_btn:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.link_button("👥 Utilisateurs ES", "https://userscreoses-ej6ntk35eyyz5ttkdd6kzx.streamlit.app/")
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -178,7 +183,7 @@ else:
 st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: grey; font-size: 0.8em;'>"
-    "© AJH & Gemini 2026"
+    "AJH 2026 - Creos Extrascolaire"
     "</div>", 
     unsafe_allow_html=True
 )
