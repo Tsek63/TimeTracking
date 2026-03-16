@@ -275,6 +275,7 @@ try:
         df_config = pd.DataFrame(columns=_config_cols)
     else:
         df_config['Fase école'] = df_config['Fase école'].astype(str).str.replace(r'\.0$', '', regex=True)
+        df_config = df_config.drop_duplicates(subset=['Fase école'], keep='last').reset_index(drop=True)
 except Exception:
     df_config = pd.DataFrame(columns=_config_cols)
 
@@ -396,7 +397,7 @@ with tab1:
                     const h = document.createElement('div'); h.style.background='#f8fafc'; h.style.padding='6px'; h.style.fontSize='11px'; h.innerText = p; listDiv.appendChild(h);
                     filtered.forEach(x => {{
                         const row = document.createElement('div'); row.className = 'item-row';
-                        const counts = `<div class="counts-container"><span class="cnt" style="background:#22c55e" title="Utilisent Creos">✓ ${{x.NbOui}}</span><span class="cnt" style="background:#ef4444" title="N'utilisent pas Creos">✗ ${{x.NbNon}}</span><span class="cnt" style="background:#94a3b8" title="Sans configuration">? ${{x.NbSans}}</span></div>`;
+                        const counts = `<div class="counts-container"><span class="cnt" style="background:#22c55e" title="Utilisent Creos">✓ ${{x.NbOui}} Écoles utilisant Creos Extrascolaire</span><span class="cnt" style="background:#ef4444" title="N'utilisent pas Creos">✗ ${{x.NbNon}} Écoles qui ne l'utilisent pas</span><span class="cnt" style="background:#94a3b8" title="Sans configuration">? ${{x.NbSans}} Écoles sans choix enregistré</span></div>`;
                         row.innerHTML = `<span><strong style="color:#4169E1;">${{x.Commune}}</strong></span>${{counts}}`;
                         listDiv.appendChild(row);
                     }});
@@ -791,6 +792,7 @@ with tab4:
                     try:
                         conn.update(worksheet="EcolesConfig", data=df_upd4)
                         st.success("✅ Enregistré !")
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as e_save:
                         st.error(f"❌ Impossible d'enregistrer : {e_save}")
