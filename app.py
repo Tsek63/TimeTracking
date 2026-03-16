@@ -270,7 +270,7 @@ else:
 # Feuille EcolesConfig (Tab 4)
 _config_cols = ["Fase école", "Commune", "Province", "Extrascolaire", "Paiement", "Services"]
 try:
-    df_config = conn.read(worksheet="EcolesConfig", ttl=600).dropna(how="all")
+    df_config = conn.read(worksheet="EcolesConfig", ttl=0).dropna(how="all")
     if df_config.empty or not all(c in df_config.columns for c in _config_cols):
         df_config = pd.DataFrame(columns=_config_cols)
     else:
